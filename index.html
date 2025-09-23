@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sticky Notes Canvas with AI ✨</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the app */
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Using a handwriting font for the notes */
+        .note textarea {
+            font-family: 'Kalam', cursive;
+            resize: none;
+        }
+
+        /* Style for the note itself */
+        .note {
+            position: absolute;
+            width: 250px;
+            /* height: 250px; */ /* Removed fixed height for auto-sizing */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: box-shadow 0.2s ease-in-out, top 0.5s ease-in-out, left 0.5s ease-in-out;
+            cursor: move;
+            display: flex;
+            flex-direction: column;
+            min-width: 200px;
+            min-height: 150px;
+            resize: none; /* We use a custom handle */
+        }
+
+        .note:hover {
+            /* transform: scale(1.05); No longer scaling on hover to avoid issues with resizing */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        
+        /* Style for when a note is being actively dragged */
+        .note.dragging {
+            cursor: grabbing;
+            transform: scale(1.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            z-index: 1000;
+        }
+
+        /* The canvas where notes are placed */
+        #canvas {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            cursor: grab;
+        }
+        
+        #canvas.panning {
+            cursor: grabbing;
+        }
+
+        #canvas-content {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            transform-origin: 0 0;
+            /* Transition for smooth zooming */
+            transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        
+        /* Header bar for the note */
+        .note-header {
+            position: relative; /* For color palette positioning */
+            width: 100%;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0 8px;
+            flex-shrink: 0;
+        }
+        
+        .note-content {
+            position: relative;
+            flex-grow: 1;
+        }
+
+        /* AI Feature Buttons */
+        .ai-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px;
+            border-radius: 50%;
+            transition: background-color 0.2s, opacity 0.2s;
+        }
+        .ai-btn:hover:not(:disabled) {
+            background-color: rgba(0,0,0,0.1);
+        }
+        .ai-btn svg {
+            width: 18px;
+            height: 18px;
+            stroke: #4A5568;
+        }
+         .ai-btn:disabled svg {
+            stroke: #A0AEC0;
+        }
+
+
+        /* Custom resize handle */
+        .resize-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            cursor: nwse-resize;
+            background: repeating-linear-gradient(
+                135deg,
+                rgba(0,0,0,0.2),
+                rgba(0,0,0,0.2) 1px,
+                transparent 1px,
+                transparent 4px
+            );
+            border-bottom-right-radius: 0.5rem;
+        }
+
+        /* Color Palette */
+        .color-palette {
+            position: absolute;
+            top: 35px; /* Below the header */
+            left: 10px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 8px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .color-swatch {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid white;
+            transition: transform 0.1s;
+        }
+        .color-swatch:hover {
+            transform: scale(1.1);
+        }
+
+        /* Loading overlay for API calls */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            border-radius: 0 0 0.5rem 0.5rem;
+        }
+
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #4A90E2;
+            animation: spin 1s ease infinite;
+        }
+        
+        /* History Preview */
+        .history-preview {
+            position: absolute;
+            top: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 8px;
+            width: 220px;
+            z-index: 20;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+        .history-item {
+            padding: 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #4A5568;
+            transition: background-color 0.2s;
+        }
+        .history-item:hover {
+            background-color: #F7FAFC;
+        }
+        .history-item .timestamp {
+            font-weight: 600;
+            color: #2D3748;
+        }
+        .history-item .preview {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #718096;
+        }
+
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen overflow-hidden flex flex-col">
+
+    <!-- Header with controls -->
+    <header class="bg-white shadow-md p-2 z-10 flex items-center justify-start space-x-2">
+        <button id="createNoteBtn" class="px-4 py-2 bg-gray-700 text-white font-semibold rounded-lg shadow-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 transition duration-200">
+            + New Note
+        </button>
+        <button id="arrangeNotesBtn" class="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 transition duration-200">
+            Arrange
+        </button>
+        <!-- Zoom controls -->
+        <div class="flex items-center space-x-1 ml-auto bg-gray-200 rounded-lg p-1">
+             <button id="zoomOutBtn" class="p-1.5 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4" /></svg>
+             </button>
+             <button id="zoomResetBtn" class="p-1.5 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+             </button>
+             <button id="zoomInBtn" class="p-1.5 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+             </button>
+        </div>
+    </header>
+
+    <!-- The main canvas area -->
+    <main id="canvas" class="flex-grow bg-gray-200">
+        <!-- This container will hold the notes and be transformed -->
+        <div id="canvas-content">
+            <!-- Notes will be dynamically added here -->
+        </div>
+    </main>
+    
+    <!-- Error Modal -->
+    <div id="errorModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex justify-center items-center">
+        <div class="bg-white p-5 rounded-lg shadow-xl text-center">
+             <h3 class="text-lg font-bold text-red-600 mb-4">AI Error</h3>
+             <p id="errorMessage" class="mb-4"></p>
+             <button id="closeModalBtn" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">Close</button>
+        </div>
+    </div>
+
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const canvasContent = document.createElement('div');
+        canvasContent.id = 'canvas-content';
+        canvas.appendChild(canvasContent);
+
+        const createNoteBtn = document.getElementById('createNoteBtn');
+        const arrangeNotesBtn = document.getElementById('arrangeNotesBtn');
+        const zoomInBtn = document.getElementById('zoomInBtn');
+        const zoomOutBtn = document.getElementById('zoomOutBtn');
+        const zoomResetBtn = document.getElementById('zoomResetBtn');
+        const errorModal = document.getElementById('errorModal');
+        const errorMessage = document.getElementById('errorMessage');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+
+        let activeNote = null;
+        let highestZIndex = 0;
+        
+        // --- State for Panning and Zooming ---
+        let scale = 1;
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let panStart = { x: 0, y: 0 };
+        
+        // IMPORTANT: The Gemini API key will be provided by the execution environment.
+        // Do not hardcode a key here.
+        const apiKey = ""; 
+
+        // An array of pleasant sticky note colors
+        const noteColors = [
+            'bg-yellow-200', 'bg-pink-200', 'bg-green-200', 'bg-blue-200', 'bg-purple-200', 'bg-red-200'
+        ];
+
+        // --- Gemini API Call ---
+        async function callGeminiAPI(prompt, noteEl) {
+            const loadingOverlay = noteEl.querySelector('.loading-overlay');
+            const textarea = noteEl.querySelector('textarea');
+            loadingOverlay.classList.remove('hidden');
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+            };
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error.message || `API request failed with status ${response.status}`);
+                }
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const generatedText = candidate.content.parts[0].text;
+                    textarea.value = generatedText;
+                    autoResizeNote(noteEl); // Resize note after AI generates text
+                    saveHistoryState(noteEl); 
+                } else {
+                    throw new Error("Received an unexpected response format from the API.");
+                }
+
+            } catch (error) {
+                console.error("Gemini API call failed:", error);
+                showErrorModal(`Failed to generate text. Please check the console for details. Error: ${error.message}`);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // --- Create a New Note ---
+        function createNote(noteData = null) {
+            const noteEl = document.createElement('div');
+            const id = noteData ? noteData.id : `note-${Date.now()}`;
+            noteEl.id = id;
+
+            const color = noteData ? noteData.colorClass : noteColors[Math.floor(Math.random() * noteColors.length)];
+            const rotation = noteData ? noteData.rotation : Math.random() * 8 - 4; // -4 to +4 degrees
+
+            noteEl.classList.add('note', 'rounded-lg', 'p-2', color);
+            
+            const startX = noteData ? noteData.left : `${Math.random() * (canvas.clientWidth - 270) + 10}px`;
+            const startY = noteData ? noteData.top : `${Math.random() * (canvas.clientHeight - 270) + 10}px`;
+            noteEl.style.left = startX;
+            noteEl.style.top = startY;
+            noteEl.style.transform = `rotate(${rotation}deg)`;
+            if (noteData && noteData.width) noteEl.style.width = noteData.width;
+            if (noteData && noteData.height) noteEl.style.height = noteData.height;
+            if (noteData && noteData.zIndex) noteEl.style.zIndex = noteData.zIndex;
+
+
+            noteEl.innerHTML = `
+                <div class="note-header">
+                     <div class="color-palette hidden"></div>
+                     <div class="history-preview hidden"></div>
+                    <div class="flex items-center space-x-2 mr-auto">
+                        <!-- Color Picker Button -->
+                        <button class="ai-btn color-picker-btn" title="Change Color">
+                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5" /></svg>
+                        </button>
+                         <!-- Add Bullet Button -->
+                        <button class="ai-btn add-bullet-btn" title="Add Bullet Point">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
+                        </button>
+                        <!-- Undo Button -->
+                        <button class="ai-btn undo-btn" title="Undo" disabled>
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                        </button>
+                        <!-- Redo Button -->
+                        <button class="ai-btn redo-btn" title="Redo" disabled>
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg>
+                        </button>
+                         <!-- History Button -->
+                        <button class="ai-btn history-btn" title="Show History">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </button>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <!-- Summarize Button -->
+                        <button class="ai-btn summarize-btn" title="✨ Summarize Note">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>
+                        </button>
+                        <!-- Continue Writing Button -->
+                        <button class="ai-btn continue-btn" title="✨ Continue Writing">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.898 20.572L16.5 21.75l-.398-1.178a3.375 3.375 0 00-2.455-2.455l-1.178-.398 1.178-.398a3.375 3.375 0 002.455-2.455l.398-1.178.398 1.178a3.375 3.375 0 002.455 2.455l1.178.398-1.178.398a3.375 3.375 0 00-2.455 2.455z" /></svg>
+                        </button>
+                    </div>
+                     <button class="delete-btn text-gray-500 hover:text-red-500 text-lg font-bold ml-auto">&times;</button>
+                </div>
+                <div class="note-content">
+                    <div class="loading-overlay hidden"><div class="spinner"></div></div>
+                    <textarea class="bg-transparent focus:outline-none w-full text-gray-800 p-2" placeholder="Write something..."></textarea>
+                </div>
+                <div class="resize-handle"></div>
+            `;
+            
+            if (!noteData) {
+                 highestZIndex++;
+                 noteEl.style.zIndex = highestZIndex;
+            }
+            
+            canvasContent.appendChild(noteEl);
+            const textarea = noteEl.querySelector('textarea');
+
+            // --- History Setup ---
+            // If loading, use saved history. Otherwise, start fresh.
+            noteEl.history = noteData?.history || [{ text: '', timestamp: new Date() }];
+            noteEl.historyIndex = noteData?.historyIndex ?? 0;
+            textarea.value = noteEl.history[noteEl.historyIndex].text;
+
+            textarea.addEventListener('input', () => {
+                autoResizeNote(noteEl);
+                saveHistoryState(noteEl);
+            });
+            updateHistoryButtons(noteEl);
+            updateHistoryPreview(noteEl);
+
+            autoResizeNote(noteEl); // Set initial size correctly
+
+            addDragListeners(noteEl);
+            addResizeListeners(noteEl);
+
+            const colorPalette = noteEl.querySelector('.color-palette');
+            noteColors.forEach(color => {
+                const swatch = document.createElement('div');
+                swatch.classList.add('color-swatch', color);
+                swatch.dataset.color = color;
+                swatch.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    noteColors.forEach(c => noteEl.classList.remove(c));
+                    noteEl.classList.add(swatch.dataset.color);
+                    colorPalette.classList.add('hidden');
+                    saveNotes();
+                });
+                colorPalette.appendChild(swatch);
+            });
+
+            // Add event listeners for note-specific buttons
+            noteEl.querySelector('.delete-btn').addEventListener('click', () => {
+                noteEl.remove();
+                saveNotes();
+            });
+            
+            noteEl.querySelector('.summarize-btn').addEventListener('click', () => {
+                const text = textarea.value;
+                if (!text) return;
+                const prompt = `Summarize the following text in under 100 words, preferably as bullet points. Each bullet point should be concise and ideally under 50 words. Text to summarize: "${text}"`;
+                callGeminiAPI(prompt, noteEl);
+            });
+            
+            noteEl.querySelector('.continue-btn').addEventListener('click', () => {
+                const text = textarea.value;
+                if (!text) return;
+                const prompt = `Continue writing from this point. Provide a concise continuation that summarizes the next logical steps or concludes the thought. The continuation should be 100 words or less. Text to continue: "${text}"`;
+                callGeminiAPI(prompt, noteEl);
+            });
+            
+            noteEl.querySelector('.color-picker-btn').addEventListener('click', (e) => {
+                 e.stopPropagation();
+                 colorPalette.classList.toggle('hidden');
+            });
+            
+            noteEl.querySelector('.add-bullet-btn').addEventListener('click', () => {
+                const cursorPos = textarea.selectionStart;
+                const text = textarea.value;
+                const newText = text.substring(0, cursorPos) + '• ' + text.substring(cursorPos);
+                textarea.value = newText;
+                textarea.focus();
+                textarea.selectionEnd = cursorPos + 2;
+                autoResizeNote(noteEl); // Resize after adding bullet
+                saveHistoryState(noteEl);
+            });
+
+            noteEl.querySelector('.undo-btn').addEventListener('click', () => {
+                if (noteEl.historyIndex > 0) {
+                    noteEl.historyIndex--;
+                    textarea.value = noteEl.history[noteEl.historyIndex].text;
+                    updateHistoryButtons(noteEl);
+                    autoResizeNote(noteEl);
+                    saveNotes();
+                }
+            });
+
+            noteEl.querySelector('.redo-btn').addEventListener('click', () => {
+                if (noteEl.historyIndex < noteEl.history.length - 1) {
+                    noteEl.historyIndex++;
+                    textarea.value = noteEl.history[noteEl.historyIndex].text;
+                    updateHistoryButtons(noteEl);
+                    autoResizeNote(noteEl);
+                    saveNotes();
+                }
+            });
+            
+            noteEl.querySelector('.history-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                noteEl.querySelector('.history-preview').classList.toggle('hidden');
+            });
+
+            // If it's a brand new note, save all notes.
+            if (!noteData) {
+                saveNotes();
+            }
+        }
+        
+        // --- Note History Management ---
+        function saveHistoryState(noteEl) {
+            const textarea = noteEl.querySelector('textarea');
+            const currentText = textarea.value;
+            const lastSavedText = noteEl.history[noteEl.historyIndex].text;
+
+            if (currentText === lastSavedText) return;
+
+            if (noteEl.historyIndex < noteEl.history.length - 1) {
+                noteEl.history = noteEl.history.slice(0, noteEl.historyIndex + 1);
+            }
+            
+            noteEl.history.push({ text: currentText, timestamp: new Date() });
+
+            if (noteEl.history.length > 7) {
+                noteEl.history.shift();
+            }
+
+            noteEl.historyIndex = noteEl.history.length - 1;
+            updateHistoryButtons(noteEl);
+            updateHistoryPreview(noteEl);
+            saveNotes(); // Save after text state changes
+        }
+
+        function updateHistoryButtons(noteEl) {
+            const undoBtn = noteEl.querySelector('.undo-btn');
+            const redoBtn = noteEl.querySelector('.redo-btn');
+            
+            undoBtn.disabled = noteEl.historyIndex <= 0;
+            undoBtn.classList.toggle('opacity-50', undoBtn.disabled);
+            
+            redoBtn.disabled = noteEl.historyIndex >= noteEl.history.length - 1;
+            redoBtn.classList.toggle('opacity-50', redoBtn.disabled);
+        }
+
+        function updateHistoryPreview(noteEl) {
+            const previewContainer = noteEl.querySelector('.history-preview');
+            previewContainer.innerHTML = ''; // Clear existing items
+
+            if (noteEl.history.length <= 1) {
+                 previewContainer.innerHTML = '<div class="text-xs text-gray-400 p-2 text-center">No history yet.</div>';
+                 return;
+            }
+
+            [...noteEl.history].reverse().forEach((state, index) => {
+                const reversedIndex = noteEl.history.length - 1 - index;
+                const item = document.createElement('div');
+                item.classList.add('history-item');
+
+                const time = new Date(state.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const previewText = state.text.substring(0, 25) + (state.text.length > 25 ? '...' : '');
+
+                item.innerHTML = `
+                    <div class="timestamp">${time}</div>
+                    <div class="preview">${previewText || 'Empty Note'}</div>
+                `;
+
+                item.addEventListener('click', () => {
+                    noteEl.historyIndex = reversedIndex;
+                    noteEl.querySelector('textarea').value = state.text;
+                    updateHistoryButtons(noteEl);
+                    previewContainer.classList.add('hidden');
+                    autoResizeNote(noteEl);
+                    saveNotes();
+                });
+                
+                previewContainer.appendChild(item);
+            });
+        }
+
+        // --- Auto-resize note based on content ---
+        function autoResizeNote(noteEl) {
+            const textarea = noteEl.querySelector('textarea');
+            const minHeight = 120; // Minimum height in pixels to ensure placeholder is visible inside the note's initial size
+
+            textarea.style.height = 'auto'; // Reset height to shrink to content before measuring
+            
+            // The new height is the larger of its content size (scrollHeight) or our defined minimum height
+            const newHeight = Math.max(textarea.scrollHeight, minHeight);
+            
+            // Set height to fit all content. A small buffer can prevent scrollbars on some browsers.
+            textarea.style.height = `${newHeight}px`; 
+        }
+
+        // --- LocalStorage Functions ---
+        function saveNotes() {
+            const notesOnCanvas = document.querySelectorAll('.note');
+            const notesData = Array.from(notesOnCanvas).map(noteEl => {
+                const colorClass = Array.from(noteEl.classList).find(c => c.startsWith('bg-'));
+                const transform = noteEl.style.transform;
+                const rotationMatch = transform.match(/rotate\(([^)]+)\)/);
+                const rotation = rotationMatch ? parseFloat(rotationMatch[1]) : 0;
+                return {
+                    id: noteEl.id,
+                    left: noteEl.style.left,
+                    top: noteEl.style.top,
+                    width: noteEl.style.width,
+                    height: noteEl.style.height,
+                    zIndex: noteEl.style.zIndex,
+                    colorClass: colorClass,
+                    rotation: rotation,
+                    history: noteEl.history,
+                    historyIndex: noteEl.historyIndex
+                };
+            });
+            localStorage.setItem('stickyNotes', JSON.stringify(notesData));
+        }
+
+        function loadNotes() {
+            const savedNotes = localStorage.getItem('stickyNotes');
+            if (savedNotes) {
+                const notesData = JSON.parse(savedNotes);
+                // Find the highest z-index from loaded notes to continue from there
+                if (notesData.length > 0) {
+                     highestZIndex = Math.max(...notesData.map(n => parseInt(n.zIndex) || 0));
+                }
+                notesData.forEach(note => createNote(note));
+            }
+        }
+
+        // --- Add Drag and Drop Functionality ---
+        function addDragListeners(note) {
+            let offsetX, offsetY;
+            const onMouseDown = (e) => {
+                // Ignore clicks on buttons, textarea, resize handle etc.
+                if (e.target.closest('button, textarea, .resize-handle, .color-swatch, .history-item')) return;
+                
+                e.stopPropagation(); // prevent canvas panning when dragging a note
+                activeNote = note;
+                activeNote.classList.add('dragging');
+                highestZIndex++;
+                activeNote.style.zIndex = highestZIndex;
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            };
+            const onMouseMove = (e) => {
+                if (!activeNote) return;
+                const currentLeft = parseFloat(activeNote.style.left) || 0;
+                const currentTop = parseFloat(activeNote.style.top) || 0;
+                
+                activeNote.style.left = `${currentLeft + e.movementX / scale}px`;
+                activeNote.style.top = `${currentTop + e.movementY / scale}px`;
+            };
+            const onMouseUp = () => {
+                if (activeNote) {
+                     activeNote.classList.remove('dragging');
+                     saveNotes(); // Save position after dropping
+                }
+                activeNote = null;
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            note.addEventListener('mousedown', onMouseDown);
+        }
+
+        // --- Add Resize Functionality ---
+        function addResizeListeners(note) {
+            const resizeHandle = note.querySelector('.resize-handle');
+            let isResizing = false;
+
+            const onMouseDown = (e) => {
+                e.stopPropagation();
+                isResizing = true;
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            };
+
+            const onMouseMove = (e) => {
+                if (!isResizing) return;
+                const currentWidth = note.offsetWidth;
+                const currentHeight = note.offsetHeight;
+                note.style.width = `${currentWidth + e.movementX / scale}px`;
+                note.style.height = `${currentHeight + e.movementY / scale}px`;
+                autoResizeNote(note); // Ensure textarea resizes with note
+            };
+
+            const onMouseUp = () => {
+                if (isResizing) {
+                    isResizing = false;
+                    saveNotes(); // Save size after resizing
+                }
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+
+            resizeHandle.addEventListener('mousedown', onMouseDown);
+        }
+
+
+        // --- Arrange Notes in a Tiled Grid ---
+        function arrangeNotes() {
+            const notes = canvasContent.querySelectorAll('.note');
+            if (notes.length === 0) return;
+            const canvasWidth = canvas.clientWidth / scale; // Adjust for zoom
+            const gap = 20;
+            let currentX = gap;
+            let currentY = gap;
+            let maxRowHeight = 0;
+
+            notes.forEach(note => {
+                const noteWidth = note.offsetWidth;
+                const noteHeight = note.offsetHeight;
+
+                if (currentX + noteWidth + gap > canvasWidth) {
+                    currentX = gap;
+                    currentY += maxRowHeight + gap;
+                    maxRowHeight = 0;
+                }
+
+                note.style.left = `${currentX}px`;
+                note.style.top = `${currentY}px`;
+                note.style.transform = 'rotate(0deg)';
+                
+                currentX += noteWidth + gap;
+                if (noteHeight > maxRowHeight) {
+                    maxRowHeight = noteHeight;
+                }
+            });
+            saveNotes(); // Save new positions after arranging
+        }
+        
+        // --- Canvas Zoom and Pan Functions ---
+        function updateCanvasTransform() {
+            canvasContent.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+        }
+
+        function handleZoom(e) {
+            e.preventDefault();
+            const zoomSpeed = 0.1;
+            const oldScale = scale;
+
+            if (e.deltaY < 0) { // Zoom in
+                scale = Math.min(2, scale + zoomSpeed);
+            } else { // Zoom out
+                scale = Math.max(0.3, scale - zoomSpeed);
+            }
+            
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            panX = mouseX - (mouseX - panX) * (scale / oldScale);
+            panY = mouseY - (mouseY - panY) * (scale / oldScale);
+
+            updateCanvasTransform();
+        }
+
+        function startPan(e) {
+            // Only pan if clicking on the canvas background itself
+            if (e.target !== canvas && e.target !== canvasContent) return;
+            isPanning = true;
+            canvas.classList.add('panning');
+            panStart.x = e.clientX - panX;
+            panStart.y = e.clientY - panY;
+        }
+
+        function doPan(e) {
+            if (!isPanning) return;
+            panX = e.clientX - panX;
+            panY = e.clientY - panY;
+            updateCanvasTransform();
+        }
+
+        function endPan() {
+            isPanning = false;
+            canvas.classList.remove('panning');
+        }
+        
+        // --- Global listener to close popups ---
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.color-palette:not(.hidden), .history-preview:not(.hidden)').forEach(el => {
+                el.classList.add('hidden');
+            });
+        });
+
+
+        // --- Modal Controls ---
+        function showErrorModal(message) {
+            errorMessage.textContent = message;
+            errorModal.classList.remove('hidden');
+        }
+
+        function hideErrorModal() {
+            errorModal.classList.add('hidden');
+        }
+        
+        // --- Event Listeners for Buttons ---
+        createNoteBtn.addEventListener('click', () => createNote());
+        arrangeNotesBtn.addEventListener('click', arrangeNotes);
+        
+        zoomInBtn.addEventListener('click', () => {
+            scale = Math.min(2, scale + 0.1);
+            updateCanvasTransform();
+        });
+        zoomOutBtn.addEventListener('click', () => {
+            scale = Math.max(0.3, scale - 0.1);
+            updateCanvasTransform();
+        });
+        zoomResetBtn.addEventListener('click', () => {
+            scale = 1;
+            panX = 0;
+            panY = 0;
+            updateCanvasTransform();
+        });
+
+        canvas.addEventListener('wheel', handleZoom);
+        canvas.addEventListener('mousedown', startPan);
+        canvas.addEventListener('mousemove', doPan);
+        canvas.addEventListener('mouseup', endPan);
+        canvas.addEventListener('mouseleave', endPan);
+
+        closeModalBtn.addEventListener('click', hideErrorModal);
+
+        // --- Initial setup ---
+        loadNotes();
+
+    </script>
+</body>
+</html>
+
