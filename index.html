@@ -304,10 +304,11 @@
             const textarea = noteEl.querySelector('textarea');
             loadingOverlay.classList.remove('hidden');
 
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            // --- CHANGE: The API URL now points to our secure Netlify Function ---
+            const apiUrl = `/.netlify/functions/gemini-proxy`;
 
             const payload = {
-                contents: [{ parts: [{ text: prompt }] }],
+                prompt: prompt // Our function expects an object with a 'prompt' key
             };
             
             try {
