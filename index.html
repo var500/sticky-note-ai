@@ -424,6 +424,10 @@
 
             textarea.addEventListener('input', () => {
                 autoResizeNote(noteEl);
+                // History is no longer saved on every keystroke
+            });
+            // Also save history when the user clicks away from the textarea
+            textarea.addEventListener('blur', () => {
                 saveHistoryState(noteEl);
             });
             updateHistoryButtons(noteEl);
@@ -836,4 +840,3 @@
     </script>
 </body>
 </html>
-
