@@ -24,7 +24,6 @@
         .note {
             position: absolute;
             width: 250px;
-            /* height: 250px; */ /* Removed fixed height for auto-sizing */
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             transition: box-shadow 0.2s ease-in-out, top 0.5s ease-in-out, left 0.5s ease-in-out;
             cursor: move;
@@ -32,6 +31,7 @@
             flex-direction: column;
             min-width: 200px;
             min-height: 150px;
+            height: auto; /* Let content determine the height */
             resize: none; /* We use a custom handle */
         }
 
@@ -298,49 +298,69 @@
             'bg-yellow-200', 'bg-pink-200', 'bg-green-200', 'bg-blue-200', 'bg-purple-200', 'bg-red-200'
         ];
 
-        // --- Gemini API Call ---
+        // --- Gemini API Call with Retry Logic ---
         async function callGeminiAPI(prompt, noteEl) {
             const loadingOverlay = noteEl.querySelector('.loading-overlay');
             const textarea = noteEl.querySelector('textarea');
             loadingOverlay.classList.remove('hidden');
 
-            // --- CHANGE: The API URL now points to our secure Netlify Function ---
+            // The API URL points to our secure Netlify Function
             const apiUrl = `/.netlify/functions/gemini-proxy`;
-
             const payload = {
-                prompt: prompt // Our function expects an object with a 'prompt' key
+                prompt: prompt
             };
             
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+            const maxRetries = 3;
+            let attempt = 0;
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error.message || `API request failed with status ${response.status}`);
+            while (attempt < maxRetries) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        // For specific server errors, we might not want to retry, but for this implementation we'll let the catch block handle it.
+                        throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const candidate = result.candidates?.[0];
+
+                    if (candidate && candidate.content?.parts?.[0]?.text) {
+                        const generatedText = candidate.content.parts[0].text;
+                        textarea.value = generatedText;
+                        autoResizeNote(noteEl); 
+                        saveHistoryState(noteEl); 
+                        // If successful, exit the function.
+                        loadingOverlay.classList.add('hidden');
+                        return;
+                    } else {
+                        throw new Error("Received an unexpected response format from the API.");
+                    }
+
+                } catch (error) {
+                    attempt++;
+                    // If we've exhausted all retries, show an error and exit.
+                    if (attempt >= maxRetries) {
+                        console.error("Gemini API call failed after multiple retries:", error);
+                        showErrorModal(`Failed to generate text after ${maxRetries} attempts. Error: ${error.message}`);
+                        break; // Exit the loop
+                    }
+
+                    // Log the retry attempt, but not as a critical error.
+                    console.log(`API call attempt ${attempt} failed. Retrying...`);
+                    
+                    // Exponential backoff: wait 1s, then 2s.
+                    const delay = Math.pow(2, attempt - 1) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
                 }
-
-                const result = await response.json();
-                const candidate = result.candidates?.[0];
-
-                if (candidate && candidate.content?.parts?.[0]?.text) {
-                    const generatedText = candidate.content.parts[0].text;
-                    textarea.value = generatedText;
-                    autoResizeNote(noteEl); // Resize note after AI generates text
-                    saveHistoryState(noteEl); 
-                } else {
-                    throw new Error("Received an unexpected response format from the API.");
-                }
-
-            } catch (error) {
-                console.error("Gemini API call failed:", error);
-                showErrorModal(`Failed to generate text. Please check the console for details. Error: ${error.message}`);
-            } finally {
-                loadingOverlay.classList.add('hidden');
             }
+            // Ensure loading overlay is hidden if all retries fail.
+            loadingOverlay.classList.add('hidden');
         }
 
         // --- Create a New Note ---
@@ -360,7 +380,7 @@
             noteEl.style.top = startY;
             noteEl.style.transform = `rotate(${rotation}deg)`;
             if (noteData && noteData.width) noteEl.style.width = noteData.width;
-            if (noteData && noteData.height) noteEl.style.height = noteData.height;
+            if (noteData && noteData.height) noteEl.style.minHeight = noteData.height; // Apply saved height as min-height
             if (noteData && noteData.zIndex) noteEl.style.zIndex = noteData.zIndex;
 
 
@@ -594,15 +614,9 @@
         // --- Auto-resize note based on content ---
         function autoResizeNote(noteEl) {
             const textarea = noteEl.querySelector('textarea');
-            const minHeight = 120; // Minimum height in pixels to ensure placeholder is visible inside the note's initial size
-
             textarea.style.height = 'auto'; // Reset height to shrink to content before measuring
-            
-            // The new height is the larger of its content size (scrollHeight) or our defined minimum height
-            const newHeight = Math.max(textarea.scrollHeight, minHeight);
-            
-            // Set height to fit all content. A small buffer can prevent scrollbars on some browsers.
-            textarea.style.height = `${newHeight}px`; 
+            // Set height to scrollHeight to fit all content. A small buffer prevents scrollbars.
+            textarea.style.height = `${textarea.scrollHeight + 2}px`; 
         }
 
         // --- LocalStorage Functions ---
@@ -618,7 +632,7 @@
                     left: noteEl.style.left,
                     top: noteEl.style.top,
                     width: noteEl.style.width,
-                    height: noteEl.style.height,
+                    height: `${noteEl.offsetHeight}px`, // Save the actual rendered height
                     zIndex: noteEl.style.zIndex,
                     colorClass: colorClass,
                     rotation: rotation,
@@ -693,15 +707,22 @@
                 if (!isResizing) return;
                 const currentWidth = note.offsetWidth;
                 const currentHeight = note.offsetHeight;
-                note.style.width = `${currentWidth + e.movementX / scale}px`;
-                note.style.height = `${currentHeight + e.movementY / scale}px`;
-                autoResizeNote(note); // Ensure textarea resizes with note
+
+                // User controls the note's width and minimum height
+                const newWidth = Math.max(200, currentWidth + e.movementX / scale);
+                const newMinHeight = Math.max(150, currentHeight + e.movementY / scale);
+
+                note.style.width = `${newWidth}px`;
+                note.style.minHeight = `${newMinHeight}px`;
+                
+                // Let the textarea adjust, which will push the note's auto height
+                autoResizeNote(note);
             };
 
             const onMouseUp = () => {
                 if (isResizing) {
                     isResizing = false;
-                    saveNotes(); // Save size after resizing
+                    saveNotes(); // Save final size after resizing
                 }
                 document.removeEventListener('mousemove', onMouseMove);
                 document.removeEventListener('mouseup', onMouseUp);
@@ -713,8 +734,18 @@
 
         // --- Arrange Notes in a Tiled Grid ---
         function arrangeNotes() {
-            const notes = canvasContent.querySelectorAll('.note');
+            const notes = Array.from(canvasContent.querySelectorAll('.note')); // Convert NodeList to Array
             if (notes.length === 0) return;
+
+            // Sort notes by the timestamp of their last history entry (most recent first)
+            notes.sort((a, b) => {
+                const lastHistoryA = a.history[a.history.length - 1];
+                const lastHistoryB = b.history[b.history.length - 1];
+                const timeA = lastHistoryA ? new Date(lastHistoryA.timestamp).getTime() : 0;
+                const timeB = lastHistoryB ? new Date(lastHistoryB.timestamp).getTime() : 0;
+                return timeB - timeA; // Descending order
+            });
+
             const canvasWidth = canvas.clientWidth / scale; // Adjust for zoom
             const gap = 20;
             let currentX = gap;
