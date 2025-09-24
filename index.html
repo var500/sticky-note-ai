@@ -19,8 +19,15 @@
             font-family: 'Kalam', cursive;
             resize: none;
             min-height: 120px; /* Ensure a minimum size */
+            font-size: 16px; /* Base font size */
+            transition: font-size 0.2s;
         }
         
+        /* Class for toggling larger text */
+        .note-editable-content.text-large {
+            font-size: 20px;
+        }
+
         /* Style for pasted images */
         .note-editable-content img {
             max-width: 100%;
@@ -33,13 +40,13 @@
         /* Style for the note itself */
         .note {
             position: absolute;
-            width: 250px;
+            width: 280px; /* Increased default width */
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             transition: box-shadow 0.2s ease-in-out, top 0.5s ease-in-out, left 0.5s ease-in-out;
             cursor: move;
             display: flex;
             flex-direction: column;
-            min-width: 200px;
+            min-width: 260px; /* Increased min-width to prevent overflow */
             min-height: 150px;
             height: auto; /* Let content determine the height */
             resize: none; /* We use a custom handle */
@@ -334,8 +341,6 @@
 
                     if (candidate && candidate.content?.parts?.[0]?.text) {
                         const generatedText = candidate.content.parts[0].text;
-                        // Replace content but keep images. A simple approach is to just set the innerHTML.
-                        // This will remove images. For a better UX, one might parse and replace only text nodes.
                         editableContent.innerHTML = generatedText.replace(/\n/g, '<br>');
                         saveHistoryState(noteEl); 
                         loadingOverlay.classList.add('hidden');
@@ -387,6 +392,14 @@
                         <!-- Buttons here -->
                         <button class="ai-btn color-picker-btn" title="Change Color"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5" /></svg></button>
                         <button class="ai-btn add-bullet-btn" title="Add Bullet Point"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg></button>
+                        <button class="ai-btn text-size-btn" title="Toggle Text Size">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5" style="stroke: none;">
+                                <path d="M1.03 3.3a1 1 0 011.66-.7l1.34 2.33a1 1 0 01-.83 1.57h-2.68a1 1 0 01-.83-1.57L1.03 3.3zM5.53 3.3a1 1 0 011.66-.7l1.34 2.33a1 1 0 01-.83 1.57H5.02a1 1 0 01-.83-1.57L5.53 3.3zM13.5 15.75h-3v-5.25h3v5.25zM12 4.5a.75.75 0 01.75.75v5.25H9.75V5.25a.75.75 0 01.75-.75h1.5zM15.5 10.5a1 1 0 011 1v5.5a1 1 0 01-1 1h-7a1 1 0 01-1-1v-5.5a1 1 0 011-1h7z" />
+                            </svg>
+                        </button>
+                        <button class="ai-btn insert-image-btn" title="Insert Image from File">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
+                        </button>
                         <button class="ai-btn undo-btn" title="Undo" disabled><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg></button>
                         <button class="ai-btn redo-btn" title="Redo" disabled><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg></button>
                         <button class="ai-btn history-btn" title="Show History"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>
@@ -412,6 +425,10 @@
             
             canvasContent.appendChild(noteEl);
             const editableContent = noteEl.querySelector('.note-editable-content');
+
+            if (noteData && noteData.isTextLarge) {
+                editableContent.classList.add('text-large');
+            }
 
             // --- History Setup ---
             noteEl.history = noteData?.history || [{ content: '', timestamp: new Date() }];
@@ -470,6 +487,49 @@
             noteEl.querySelector('.add-bullet-btn').addEventListener('click', () => {
                 document.execCommand('insertHTML', false, '•&nbsp;');
                 saveHistoryState(noteEl);
+            });
+
+            noteEl.querySelector('.text-size-btn').addEventListener('click', () => {
+                editableContent.classList.toggle('text-large');
+                saveNotes();
+            });
+
+            noteEl.querySelector('.insert-image-btn').addEventListener('click', () => {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = 'image/*';
+                fileInput.style.display = 'none';
+
+                fileInput.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = document.createElement('img');
+                        img.src = event.target.result;
+                        editableContent.focus(); // Focus to know where to insert
+
+                        const selection = window.getSelection();
+                        if (selection.rangeCount > 0) {
+                            const range = selection.getRangeAt(0);
+                            range.deleteContents();
+                            // Create a space after image for easier typing
+                            const fragment = document.createDocumentFragment();
+                            fragment.appendChild(img);
+                            fragment.appendChild(document.createTextNode(' ')); 
+                            range.insertNode(fragment);
+                        } else {
+                            editableContent.appendChild(img);
+                        }
+                        saveHistoryState(noteEl);
+                    };
+                    reader.readAsDataURL(file);
+                });
+
+                document.body.appendChild(fileInput); // Required for some browsers
+                fileInput.click();
+                document.body.removeChild(fileInput);
             });
 
             noteEl.querySelector('.undo-btn').addEventListener('click', () => {
@@ -620,6 +680,7 @@
                     zIndex: noteEl.style.zIndex,
                     colorClass: colorClass,
                     rotation: rotation,
+                    isTextLarge: noteEl.querySelector('.note-editable-content').classList.contains('text-large'),
                     history: noteEl.history,
                     historyIndex: noteEl.historyIndex
                 };
@@ -683,7 +744,7 @@
 
             const onMouseMove = (e) => {
                 if (!isResizing) return;
-                const newWidth = Math.max(200, note.offsetWidth + e.movementX / scale);
+                const newWidth = Math.max(260, note.offsetWidth + e.movementX / scale); /* Matched min-width */
                 const newMinHeight = Math.max(150, note.offsetHeight + e.movementY / scale);
                 note.style.width = `${newWidth}px`;
                 note.style.minHeight = `${newMinHeight}px`;
@@ -825,4 +886,3 @@
     </script>
 </body>
 </html>
-
