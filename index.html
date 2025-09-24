@@ -15,10 +15,20 @@
         }
 
         /* Using a handwriting font for the notes */
-        .note textarea {
+        .note-editable-content {
             font-family: 'Kalam', cursive;
             resize: none;
+            min-height: 120px; /* Ensure a minimum size */
         }
+        
+        /* Style for pasted images */
+        .note-editable-content img {
+            max-width: 100%;
+            border-radius: 4px;
+            margin-top: 8px;
+            margin-bottom: 8px;
+        }
+
 
         /* Style for the note itself */
         .note {
@@ -289,10 +299,6 @@
         let isPanning = false;
         let panStart = { x: 0, y: 0 };
         
-        // IMPORTANT: The Gemini API key will be provided by the execution environment.
-        // Do not hardcode a key here.
-        const apiKey = ""; 
-
         // An array of pleasant sticky note colors
         const noteColors = [
             'bg-yellow-200', 'bg-pink-200', 'bg-green-200', 'bg-blue-200', 'bg-purple-200', 'bg-red-200'
@@ -301,14 +307,11 @@
         // --- Gemini API Call with Retry Logic ---
         async function callGeminiAPI(prompt, noteEl) {
             const loadingOverlay = noteEl.querySelector('.loading-overlay');
-            const textarea = noteEl.querySelector('textarea');
+            const editableContent = noteEl.querySelector('.note-editable-content');
             loadingOverlay.classList.remove('hidden');
 
-            // The API URL points to our secure Netlify Function
             const apiUrl = `/.netlify/functions/gemini-proxy`;
-            const payload = {
-                prompt: prompt
-            };
+            const payload = { prompt };
             
             const maxRetries = 3;
             let attempt = 0;
@@ -323,7 +326,6 @@
 
                     if (!response.ok) {
                         const errorData = await response.json();
-                        // For specific server errors, we might not want to retry, but for this implementation we'll let the catch block handle it.
                         throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
                     }
 
@@ -332,10 +334,10 @@
 
                     if (candidate && candidate.content?.parts?.[0]?.text) {
                         const generatedText = candidate.content.parts[0].text;
-                        textarea.value = generatedText;
-                        autoResizeNote(noteEl); 
+                        // Replace content but keep images. A simple approach is to just set the innerHTML.
+                        // This will remove images. For a better UX, one might parse and replace only text nodes.
+                        editableContent.innerHTML = generatedText.replace(/\n/g, '<br>');
                         saveHistoryState(noteEl); 
-                        // If successful, exit the function.
                         loadingOverlay.classList.add('hidden');
                         return;
                     } else {
@@ -344,22 +346,16 @@
 
                 } catch (error) {
                     attempt++;
-                    // If we've exhausted all retries, show an error and exit.
                     if (attempt >= maxRetries) {
                         console.error("Gemini API call failed after multiple retries:", error);
                         showErrorModal(`Failed to generate text after ${maxRetries} attempts. Error: ${error.message}`);
-                        break; // Exit the loop
+                        break;
                     }
-
-                    // Log the retry attempt, but not as a critical error.
                     console.log(`API call attempt ${attempt} failed. Retrying...`);
-                    
-                    // Exponential backoff: wait 1s, then 2s.
                     const delay = Math.pow(2, attempt - 1) * 1000;
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
-            // Ensure loading overlay is hidden if all retries fail.
             loadingOverlay.classList.add('hidden');
         }
 
@@ -380,51 +376,31 @@
             noteEl.style.top = startY;
             noteEl.style.transform = `rotate(${rotation}deg)`;
             if (noteData && noteData.width) noteEl.style.width = noteData.width;
-            if (noteData && noteData.height) noteEl.style.minHeight = noteData.height; // Apply saved height as min-height
+            if (noteData && noteData.height) noteEl.style.minHeight = noteData.height;
             if (noteData && noteData.zIndex) noteEl.style.zIndex = noteData.zIndex;
-
 
             noteEl.innerHTML = `
                 <div class="note-header">
                      <div class="color-palette hidden"></div>
                      <div class="history-preview hidden"></div>
                     <div class="flex items-center space-x-2 mr-auto">
-                        <!-- Color Picker Button -->
-                        <button class="ai-btn color-picker-btn" title="Change Color">
-                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5" /></svg>
-                        </button>
-                         <!-- Add Bullet Button -->
-                        <button class="ai-btn add-bullet-btn" title="Add Bullet Point">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
-                        </button>
-                        <!-- Undo Button -->
-                        <button class="ai-btn undo-btn" title="Undo" disabled>
-                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
-                        </button>
-                        <!-- Redo Button -->
-                        <button class="ai-btn redo-btn" title="Redo" disabled>
-                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg>
-                        </button>
-                         <!-- History Button -->
-                        <button class="ai-btn history-btn" title="Show History">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        </button>
+                        <!-- Buttons here -->
+                        <button class="ai-btn color-picker-btn" title="Change Color"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5" /></svg></button>
+                        <button class="ai-btn add-bullet-btn" title="Add Bullet Point"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg></button>
+                        <button class="ai-btn undo-btn" title="Undo" disabled><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg></button>
+                        <button class="ai-btn redo-btn" title="Redo" disabled><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg></button>
+                        <button class="ai-btn history-btn" title="Show History"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>
                     </div>
                     <div class="flex items-center space-x-2">
-                        <!-- Summarize Button -->
-                        <button class="ai-btn summarize-btn" title="✨ Summarize Note">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>
-                        </button>
-                        <!-- Continue Writing Button -->
-                        <button class="ai-btn continue-btn" title="✨ Continue Writing">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.898 20.572L16.5 21.75l-.398-1.178a3.375 3.375 0 00-2.455-2.455l-1.178-.398 1.178-.398a3.375 3.375 0 002.455-2.455l.398-1.178.398 1.178a3.375 3.375 0 002.455 2.455l1.178.398-1.178.398a3.375 3.375 0 00-2.455 2.455z" /></svg>
-                        </button>
+                        <!-- AI Buttons -->
+                        <button class="ai-btn summarize-btn" title="✨ Summarize Note"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg></button>
+                        <button class="ai-btn continue-btn" title="✨ Continue Writing"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.898 20.572L16.5 21.75l-.398-1.178a3.375 3.375 0 00-2.455-2.455l-1.178-.398 1.178-.398a3.375 3.375 0 002.455-2.455l.398-1.178.398 1.178a3.375 3.375 0 002.455 2.455l1.178.398-1.178.398a3.375 3.375 0 00-2.455 2.455z" /></svg></button>
                     </div>
                      <button class="delete-btn text-gray-500 hover:text-red-500 text-lg font-bold ml-auto">&times;</button>
                 </div>
                 <div class="note-content">
                     <div class="loading-overlay hidden"><div class="spinner"></div></div>
-                    <textarea class="bg-transparent focus:outline-none w-full text-gray-800 p-2" placeholder="Write something..."></textarea>
+                    <div contenteditable="true" class="note-editable-content bg-transparent focus:outline-none w-full text-gray-800 p-2" data-placeholder="Write or paste..."></>
                 </div>
                 <div class="resize-handle"></div>
             `;
@@ -435,26 +411,18 @@
             }
             
             canvasContent.appendChild(noteEl);
-            const textarea = noteEl.querySelector('textarea');
+            const editableContent = noteEl.querySelector('.note-editable-content');
 
             // --- History Setup ---
-            // If loading, use saved history. Otherwise, start fresh.
-            noteEl.history = noteData?.history || [{ text: '', timestamp: new Date() }];
+            noteEl.history = noteData?.history || [{ content: '', timestamp: new Date() }];
             noteEl.historyIndex = noteData?.historyIndex ?? 0;
-            textarea.value = noteEl.history[noteEl.historyIndex].text;
+            editableContent.innerHTML = noteEl.history[noteEl.historyIndex].content;
 
-            textarea.addEventListener('input', () => {
-                autoResizeNote(noteEl);
-                // History is no longer saved on every keystroke
-            });
-            // Also save history when the user clicks away from the textarea
-            textarea.addEventListener('blur', () => {
-                saveHistoryState(noteEl);
-            });
+            editableContent.addEventListener('blur', () => saveHistoryState(noteEl));
+            editableContent.addEventListener('paste', handlePaste);
+
             updateHistoryButtons(noteEl);
             updateHistoryPreview(noteEl);
-
-            autoResizeNote(noteEl); // Set initial size correctly
 
             addDragListeners(noteEl);
             addResizeListeners(noteEl);
@@ -481,16 +449,16 @@
             });
             
             noteEl.querySelector('.summarize-btn').addEventListener('click', () => {
-                const text = textarea.value;
+                const text = editableContent.textContent;
                 if (!text) return;
-                const prompt = `Summarize the following text in under 100 words, preferably as bullet points. Each bullet point should be concise and ideally under 50 words. Text to summarize: "${text}"`;
+                const prompt = `Summarize the following text in under 100 words, preferably as bullet points. Each bullet point should be concise. Text: "${text}"`;
                 callGeminiAPI(prompt, noteEl);
             });
             
             noteEl.querySelector('.continue-btn').addEventListener('click', () => {
-                const text = textarea.value;
+                const text = editableContent.textContent;
                 if (!text) return;
-                const prompt = `Continue writing from this point. Provide a concise continuation that summarizes the next logical steps or concludes the thought. The continuation should be 100 words or less. Text to continue: "${text}"`;
+                const prompt = `Continue writing from this point. Provide a concise continuation (100 words or less). Text: "${text}"`;
                 callGeminiAPI(prompt, noteEl);
             });
             
@@ -500,22 +468,15 @@
             });
             
             noteEl.querySelector('.add-bullet-btn').addEventListener('click', () => {
-                const cursorPos = textarea.selectionStart;
-                const text = textarea.value;
-                const newText = text.substring(0, cursorPos) + '• ' + text.substring(cursorPos);
-                textarea.value = newText;
-                textarea.focus();
-                textarea.selectionEnd = cursorPos + 2;
-                autoResizeNote(noteEl); // Resize after adding bullet
+                document.execCommand('insertHTML', false, '•&nbsp;');
                 saveHistoryState(noteEl);
             });
 
             noteEl.querySelector('.undo-btn').addEventListener('click', () => {
                 if (noteEl.historyIndex > 0) {
                     noteEl.historyIndex--;
-                    textarea.value = noteEl.history[noteEl.historyIndex].text;
+                    editableContent.innerHTML = noteEl.history[noteEl.historyIndex].content;
                     updateHistoryButtons(noteEl);
-                    autoResizeNote(noteEl);
                     saveNotes();
                 }
             });
@@ -523,9 +484,8 @@
             noteEl.querySelector('.redo-btn').addEventListener('click', () => {
                 if (noteEl.historyIndex < noteEl.history.length - 1) {
                     noteEl.historyIndex++;
-                    textarea.value = noteEl.history[noteEl.historyIndex].text;
+                    editableContent.innerHTML = noteEl.history[noteEl.historyIndex].content;
                     updateHistoryButtons(noteEl);
-                    autoResizeNote(noteEl);
                     saveNotes();
                 }
             });
@@ -535,7 +495,6 @@
                 noteEl.querySelector('.history-preview').classList.toggle('hidden');
             });
 
-            // If it's a brand new note, save all notes.
             if (!noteData) {
                 saveNotes();
             }
@@ -543,17 +502,17 @@
         
         // --- Note History Management ---
         function saveHistoryState(noteEl) {
-            const textarea = noteEl.querySelector('textarea');
-            const currentText = textarea.value;
-            const lastSavedText = noteEl.history[noteEl.historyIndex].text;
+            const editableContent = noteEl.querySelector('.note-editable-content');
+            const currentContent = editableContent.innerHTML;
+            const lastSavedContent = noteEl.history[noteEl.historyIndex].content;
 
-            if (currentText === lastSavedText) return;
+            if (currentContent === lastSavedContent) return;
 
             if (noteEl.historyIndex < noteEl.history.length - 1) {
                 noteEl.history = noteEl.history.slice(0, noteEl.historyIndex + 1);
             }
             
-            noteEl.history.push({ text: currentText, timestamp: new Date() });
+            noteEl.history.push({ content: currentContent, timestamp: new Date() });
 
             if (noteEl.history.length > 7) {
                 noteEl.history.shift();
@@ -562,7 +521,7 @@
             noteEl.historyIndex = noteEl.history.length - 1;
             updateHistoryButtons(noteEl);
             updateHistoryPreview(noteEl);
-            saveNotes(); // Save after text state changes
+            saveNotes();
         }
 
         function updateHistoryButtons(noteEl) {
@@ -578,7 +537,7 @@
 
         function updateHistoryPreview(noteEl) {
             const previewContainer = noteEl.querySelector('.history-preview');
-            previewContainer.innerHTML = ''; // Clear existing items
+            previewContainer.innerHTML = '';
 
             if (noteEl.history.length <= 1) {
                  previewContainer.innerHTML = '<div class="text-xs text-gray-400 p-2 text-center">No history yet.</div>';
@@ -590,8 +549,10 @@
                 const item = document.createElement('div');
                 item.classList.add('history-item');
 
-                const time = new Date(state.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const previewText = state.text.substring(0, 25) + (state.text.length > 25 ? '...' : '');
+                const time = new Date(state.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = state.content;
+                const previewText = tempDiv.textContent.substring(0, 25) + (tempDiv.textContent.length > 25 ? '...' : '');
 
                 item.innerHTML = `
                     <div class="timestamp">${time}</div>
@@ -600,23 +561,46 @@
 
                 item.addEventListener('click', () => {
                     noteEl.historyIndex = reversedIndex;
-                    noteEl.querySelector('textarea').value = state.text;
+                    noteEl.querySelector('.note-editable-content').innerHTML = state.content;
                     updateHistoryButtons(noteEl);
                     previewContainer.classList.add('hidden');
-                    autoResizeNote(noteEl);
                     saveNotes();
                 });
                 
                 previewContainer.appendChild(item);
             });
         }
-
-        // --- Auto-resize note based on content ---
-        function autoResizeNote(noteEl) {
-            const textarea = noteEl.querySelector('textarea');
-            textarea.style.height = 'auto'; // Reset height to shrink to content before measuring
-            // Set height to scrollHeight to fit all content. A small buffer prevents scrollbars.
-            textarea.style.height = `${textarea.scrollHeight + 2}px`; 
+        
+        // --- Image Paste Handler ---
+        function handlePaste(e) {
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            for (const item of items) {
+                if (item.type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = document.createElement('img');
+                        img.src = event.target.result;
+                        const editableContent = e.target;
+                        
+                        // Insert image at cursor position
+                        const selection = window.getSelection();
+                        if (selection.rangeCount > 0) {
+                            const range = selection.getRangeAt(0);
+                            range.deleteContents();
+                            range.insertNode(img);
+                        } else {
+                            editableContent.appendChild(img);
+                        }
+                        
+                        // Save state after pasting image
+                        saveHistoryState(editableContent.closest('.note'));
+                    };
+                    reader.readAsDataURL(file);
+                    return; // Handle only the first image
+                }
+            }
         }
 
         // --- LocalStorage Functions ---
@@ -632,7 +616,7 @@
                     left: noteEl.style.left,
                     top: noteEl.style.top,
                     width: noteEl.style.width,
-                    height: `${noteEl.offsetHeight}px`, // Save the actual rendered height
+                    height: noteEl.style.minHeight, // Save minHeight
                     zIndex: noteEl.style.zIndex,
                     colorClass: colorClass,
                     rotation: rotation,
@@ -647,7 +631,6 @@
             const savedNotes = localStorage.getItem('stickyNotes');
             if (savedNotes) {
                 const notesData = JSON.parse(savedNotes);
-                // Find the highest z-index from loaded notes to continue from there
                 if (notesData.length > 0) {
                      highestZIndex = Math.max(...notesData.map(n => parseInt(n.zIndex) || 0));
                 }
@@ -657,12 +640,10 @@
 
         // --- Add Drag and Drop Functionality ---
         function addDragListeners(note) {
-            let offsetX, offsetY;
             const onMouseDown = (e) => {
-                // Ignore clicks on buttons, textarea, resize handle etc.
-                if (e.target.closest('button, textarea, .resize-handle, .color-swatch, .history-item')) return;
+                if (e.target.closest('.note-editable-content, button, .resize-handle, .color-swatch, .history-item')) return;
                 
-                e.stopPropagation(); // prevent canvas panning when dragging a note
+                e.stopPropagation();
                 activeNote = note;
                 activeNote.classList.add('dragging');
                 highestZIndex++;
@@ -673,16 +654,13 @@
             };
             const onMouseMove = (e) => {
                 if (!activeNote) return;
-                const currentLeft = parseFloat(activeNote.style.left) || 0;
-                const currentTop = parseFloat(activeNote.style.top) || 0;
-                
-                activeNote.style.left = `${currentLeft + e.movementX / scale}px`;
-                activeNote.style.top = `${currentTop + e.movementY / scale}px`;
+                activeNote.style.left = `${parseFloat(activeNote.style.left) + e.movementX / scale}px`;
+                activeNote.style.top = `${parseFloat(activeNote.style.top) + e.movementY / scale}px`;
             };
             const onMouseUp = () => {
                 if (activeNote) {
                      activeNote.classList.remove('dragging');
-                     saveNotes(); // Save position after dropping
+                     saveNotes();
                 }
                 activeNote = null;
                 document.removeEventListener('mousemove', onMouseMove);
@@ -705,24 +683,16 @@
 
             const onMouseMove = (e) => {
                 if (!isResizing) return;
-                const currentWidth = note.offsetWidth;
-                const currentHeight = note.offsetHeight;
-
-                // User controls the note's width and minimum height
-                const newWidth = Math.max(200, currentWidth + e.movementX / scale);
-                const newMinHeight = Math.max(150, currentHeight + e.movementY / scale);
-
+                const newWidth = Math.max(200, note.offsetWidth + e.movementX / scale);
+                const newMinHeight = Math.max(150, note.offsetHeight + e.movementY / scale);
                 note.style.width = `${newWidth}px`;
                 note.style.minHeight = `${newMinHeight}px`;
-                
-                // Let the textarea adjust, which will push the note's auto height
-                autoResizeNote(note);
             };
 
             const onMouseUp = () => {
                 if (isResizing) {
                     isResizing = false;
-                    saveNotes(); // Save final size after resizing
+                    saveNotes();
                 }
                 document.removeEventListener('mousemove', onMouseMove);
                 document.removeEventListener('mouseup', onMouseUp);
@@ -731,22 +701,20 @@
             resizeHandle.addEventListener('mousedown', onMouseDown);
         }
 
-
         // --- Arrange Notes in a Tiled Grid ---
         function arrangeNotes() {
-            const notes = Array.from(canvasContent.querySelectorAll('.note')); // Convert NodeList to Array
+            const notes = Array.from(canvasContent.querySelectorAll('.note'));
             if (notes.length === 0) return;
 
-            // Sort notes by the timestamp of their last history entry (most recent first)
             notes.sort((a, b) => {
                 const lastHistoryA = a.history[a.history.length - 1];
                 const lastHistoryB = b.history[b.history.length - 1];
                 const timeA = lastHistoryA ? new Date(lastHistoryA.timestamp).getTime() : 0;
                 const timeB = lastHistoryB ? new Date(lastHistoryB.timestamp).getTime() : 0;
-                return timeB - timeA; // Descending order
+                return timeB - timeA;
             });
 
-            const canvasWidth = canvas.clientWidth / scale; // Adjust for zoom
+            const canvasWidth = canvas.clientWidth / scale;
             const gap = 20;
             let currentX = gap;
             let currentY = gap;
@@ -755,23 +723,18 @@
             notes.forEach(note => {
                 const noteWidth = note.offsetWidth;
                 const noteHeight = note.offsetHeight;
-
                 if (currentX + noteWidth + gap > canvasWidth) {
                     currentX = gap;
                     currentY += maxRowHeight + gap;
                     maxRowHeight = 0;
                 }
-
                 note.style.left = `${currentX}px`;
                 note.style.top = `${currentY}px`;
                 note.style.transform = 'rotate(0deg)';
-                
                 currentX += noteWidth + gap;
-                if (noteHeight > maxRowHeight) {
-                    maxRowHeight = noteHeight;
-                }
+                if (noteHeight > maxRowHeight) maxRowHeight = noteHeight;
             });
-            saveNotes(); // Save new positions after arranging
+            saveNotes();
         }
         
         // --- Canvas Zoom and Pan Functions ---
@@ -783,25 +746,17 @@
             e.preventDefault();
             const zoomSpeed = 0.1;
             const oldScale = scale;
-
-            if (e.deltaY < 0) { // Zoom in
-                scale = Math.min(2, scale + zoomSpeed);
-            } else { // Zoom out
-                scale = Math.max(0.3, scale - zoomSpeed);
-            }
-            
+            if (e.deltaY < 0) scale = Math.min(2, scale + zoomSpeed);
+            else scale = Math.max(0.3, scale - zoomSpeed);
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
-            
             panX = mouseX - (mouseX - panX) * (scale / oldScale);
             panY = mouseY - (mouseY - panY) * (scale / oldScale);
-
             updateCanvasTransform();
         }
 
         function startPan(e) {
-            // Only pan if clicking on the canvas background itself
             if (e.target !== canvas && e.target !== canvasContent) return;
             isPanning = true;
             canvas.classList.add('panning');
@@ -827,7 +782,6 @@
                 el.classList.add('hidden');
             });
         });
-
 
         // --- Modal Controls ---
         function showErrorModal(message) {
@@ -868,7 +822,7 @@
 
         // --- Initial setup ---
         loadNotes();
-
     </script>
 </body>
 </html>
+
